@@ -1,0 +1,33 @@
+name: Holdings Monitor
+
+on:
+  schedule:
+    # 台灣時間 20:00 = UTC 12:00（收盤後晚間，留時間讓你登記買賣）
+    - cron: '0 12 * * 1-5'
+  workflow_dispatch:  # 允許手動觸發測試
+
+jobs:
+  run-holdings:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: uv sync
+
+      - name: Run holdings monitor
+        env:
+          FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_CREDS_JSON: ${{ secrets.GOOGLE_CREDS_JSON }}
+        run: uv run python holdings_monitor.py
