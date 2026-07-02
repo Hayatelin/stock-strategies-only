@@ -69,7 +69,7 @@ def main():
         send_telegram(f"📌 *持股停損停利檢查* {today}\n目前無持股，今日無需檢查。")
         return
 
-    alerts, normals = [], []
+    alerts, normals, fetch_fails = [], [], []
     for row_idx, r in holdings:
         sid = str(r.get("代號", "")).strip()
         name = str(r.get("名稱", "")).strip()
@@ -80,7 +80,7 @@ def main():
 
         p = get_last_close(sid)
         if p is None:
-            normals.append(f"• {sid} {name}｜查價失敗，請手動確認")
+            fetch_fails.append(f"• {sid} {name}｜今日查不到價，**這檔沒被停損檢查到**，請手動看盤")
             continue
 
         new_peak = max(peak, p)
@@ -109,6 +109,10 @@ def main():
             normals.append(f"• {line}")
 
     msg = [f"📌 *持股停損停利檢查* {today}", ""]
+    if fetch_fails:
+        msg.append("🟠 *查價失敗（需手動確認）*")
+        msg.extend(fetch_fails)
+        msg.append("")
     if alerts:
         msg.append("⚠️ *需要注意*")
         msg.extend(alerts)
