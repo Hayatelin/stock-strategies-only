@@ -32,25 +32,37 @@ REPORT = Path("戰情報告.html")
 
 # ── 資料 ──────────────────────────────────────────────
 
+DATASET = "TaiwanStockPrice"   # 開跑時探測，可用才升級成還原價
+
 def _req(params):
-    for i in range(4):
+    """API 明確拒絕（權限不足等）直接放棄，不做重試退避；只對限流/網路問題小retry。"""
+    for i in range(2):
         try:
             r = requests.get(FINMIND_URL, params=params, timeout=30)
             if r.status_code == 200:
                 j = r.json()
-                if j.get("status") == 200:
-                    return j.get("data", [])
-            time.sleep(3 * (i + 1))
+                return j.get("data", []) if j.get("status") == 200 else []
+            if r.status_code == 429:          # 限流
+                time.sleep(15 * (i + 1)); continue
+            return []                          # 4xx/5xx 明確錯誤 → 不重試
         except Exception:
-            time.sleep(3 * (i + 1))
+            time.sleep(3)
     return []
 
+def probe_dataset():
+    """探測還原價資料集權限，決定全程用哪個 dataset。"""
+    global DATASET
+    test = _req(dict(dataset="TaiwanStockPriceAdj", data_id="2330",
+                     start_date="2026-06-01", token=TOKEN))
+    DATASET = "TaiwanStockPriceAdj" if test else "TaiwanStockPrice"
+    print(f"[probe] 使用資料集: {DATASET}", flush=True)
+
 def fetch(sid, start):
-    base = dict(data_id=sid, start_date=start, token=TOKEN)
-    rows = _req(dict(base, dataset="TaiwanStockPriceAdj"))
-    adj = True
-    if not rows:
-        rows = _req(dict(base, dataset="TaiwanStockPrice"))
+    rows = _req(dict(data_id=sid, start_date=start, token=TOKEN, dataset=DATASET))
+    adj = DATASET == "TaiwanStockPriceAdj"
+    if not rows and adj:                       # 個別標的沒有還原價 → 退回原始價
+        rows = _req(dict(data_id=sid, start_date=start, token=TOKEN,
+                         dataset="TaiwanStockPrice"))
         adj = False
     if not rows:
         return None
@@ -241,15 +253,21 @@ def tg_send_file(path, caption=""):
 
 def main():
     wl = load_watchlist()
+    probe_dataset()
     start = (pd.Timestamp.today() - pd.DateOffset(years=YEARS)).strftime("%Y-%m-%d")
     data, fails = {}, []
-    for i, sid in enumerate(list(wl) + ([BENCH] if BENCH not in wl else [])):
+    ids = list(wl) + ([BENCH] if BENCH not in wl else [])
+    t0 = time.time()
+    for i, sid in enumerate(ids):
         df = fetch(sid, start)
         if df is not None and len(df) >= 120:
             data[sid] = df
         else:
             fails.append(sid)
+        if (i + 1) % 25 == 0:
+            print(f"[fetch] {i+1}/{len(ids)} 檔完成，耗時 {time.time()-t0:.0f}s", flush=True)
         time.sleep(0.12)
+    print(f"[fetch] 全部完成 {len(data)}/{len(ids)}，失敗 {len(fails)} 檔", flush=True)
     if BENCH not in data:
         send_telegram("⚠️ 全量回測失敗：抓不到 0050 基準資料"); return
     dates = data[BENCH].index[60:]
