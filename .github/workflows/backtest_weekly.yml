@@ -1,0 +1,33 @@
+name: 全量策略回測週報
+
+on:
+  schedule:
+    - cron: "0 2 * * 6"        # 每週六 10:00 台灣時間
+  workflow_dispatch: {}         # 也可手動觸發
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: 安裝套件
+        run: pip install -r requirements.txt || pip install pandas numpy requests gspread google-auth
+      - name: 執行全量回測
+        env:
+          FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_CREDS_JSON: ${{ secrets.GOOGLE_CREDS_JSON }}
+        run: python backtest_cloud.py
+      - name: 上傳報告為 artifact（備份）
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: 戰情報告
+          path: 戰情報告.html
+          if-no-files-found: ignore
