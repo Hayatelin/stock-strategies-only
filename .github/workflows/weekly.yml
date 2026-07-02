@@ -1,15 +1,15 @@
-name: V3 Daily Signal
+name: Weekly Review
 
 on:
   schedule:
-    # Taiwan time 14:30 = UTC 06:30, after market close.
-    - cron: "30 6 * * 1-5"
-  workflow_dispatch:
+    # 台灣時間 週日 20:00 = UTC 週日 12:00
+    - cron: '0 12 * * 0'
+  workflow_dispatch:  # 允許手動觸發測試
 
 jobs:
-  run-signal:
+  run-weekly:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
@@ -18,28 +18,19 @@ jobs:
       - name: Setup uv
         uses: astral-sh/setup-uv@v4
         with:
-          python-version: "3.11"
+          python-version: '3.11'
 
       - name: Install deps
         run: uv sync
 
-      # 跨次保存 FinMind parquet 快取：每天雲端執行從「冷啟動重抓」變「增量補抓」，大幅省 FinMind 額度
-      - name: Restore/Save FinMind cache
-        uses: actions/cache@v4
-        with:
-          path: .cache/finmind
-          key: finmind-cache-${{ github.run_id }}
-          restore-keys: |
-            finmind-cache-
-
-      - name: Run signal engine
+      - name: Run weekly report
         env:
           FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_CREDS_JSON: ${{ secrets.GOOGLE_CREDS_JSON }}
-        run: uv run python main.py
+        run: uv run python weekly_report.py
 
       - name: 失敗時通知 Telegram
         if: failure()
@@ -49,4 +40,4 @@ jobs:
         run: |
           curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
-            --data-urlencode "text=🔴 [${GITHUB_WORKFLOW}] 今日自動選股失敗，沒有推播＝這次沒跑成功，請手動看盤。詳情: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            --data-urlencode "text=🔴 [${GITHUB_WORKFLOW}] 本週回顧產生失敗。詳情: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
