@@ -41,6 +41,10 @@ COL_CLASS = "類別"
 # Google 試算表日期序號的基準日
 SHEET_EPOCH = pd.Timestamp("1899-12-30")
 
+# 浮點容差：100*(1+0.10) 會等於 110.00000000000001，
+# 不加容差時「現價剛好等於門檻」不會觸發移動停利。
+EPS = 1e-9
+
 
 def _to_float(v):
     try:
@@ -85,15 +89,39 @@ def get_price_frame(stock_id: str):
     return df
 
 
-def held_trading_days(df, buy_date):
-    """買進日之後（含當日）有報價的天數＝實際持有交易日數。"""
+def _since_buy_mask(df, buy_date):
+    """回傳「買進日（含）之後」的布林遮罩；無法判斷時回 None。"""
     if df is None or buy_date is None or "date" not in df.columns:
         return None
     try:
         dates = pd.to_datetime(df["date"])
     except Exception:  # noqa: BLE001
         return None
-    return int((dates >= buy_date).sum())
+    return dates >= buy_date
+
+
+def held_trading_days(df, buy_date):
+    """買進日之後（含當日）有報價的天數＝實際持有交易日數。"""
+    mask = _since_buy_mask(df, buy_date)
+    if mask is None:
+        return None
+    return int(mask.sum())
+
+
+def peak_since_buy(df, buy_date):
+    """買進日以來的最高收盤價。
+
+    補登舊單時試算表的「期間最高價」可能只是買進價，
+    若不回頭補算，移動停利在「早就大漲過」的部位上會名存實亡。
+    價格資料本來就已抓下來，這步不額外耗 API 額度。
+    """
+    mask = _since_buy_mask(df, buy_date)
+    if mask is None or not bool(mask.any()):
+        return None
+    try:
+        return float(df.loc[mask, "close"].max())
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def main():
@@ -109,7 +137,9 @@ def main():
 
     headers = [h.strip() for h in ws.row_values(1)]
     col = {h: i + 1 for i, h in enumerate(headers)}  # 1-based 欄位位置
-    records = ws.get_all_records()
+    # numericise_ignore=["all"]：不可讓 gspread 把代號轉成數字。
+    # 0050 會變 50（FinMind 查無資料）、006208 會變 6208（可能撞到別家真實個股 → 抓錯價還不報錯）。
+    records = ws.get_all_records(numericise_ignore=["all"])
 
     holdings = [
         (i, r) for i, r in enumerate(records, start=2)
@@ -121,13 +151,23 @@ def main():
         send_telegram(f"📌 *持股停損停利檢查* {today}\n目前無持股，今日無需檢查。")
         return
 
-    alerts, normals, fetch_fails = [], [], []
+    alerts, normals, needs_check = [], [], []
 
     for row_idx, r in holdings:
         sid = str(r.get(COL_ID, "")).strip()
         name = str(r.get(COL_NAME, "")).strip()
         entry = _to_float(r.get(COL_ENTRY))
-        if not sid or entry is None or entry <= 0:
+        if not sid:
+            needs_check.append(
+                f"• 第 {row_idx} 列「代號」空白，*這列沒被檢查到*，請確認試算表"
+            )
+            continue
+        if entry is None or entry <= 0:
+            # 不可 silent skip：買進價打錯字（如「104.5元」）會讓整檔失去保護
+            needs_check.append(
+                f"• {sid} {name}｜「買進價」無法解析（讀到 {r.get(COL_ENTRY)!r}），"
+                "*這檔沒被檢查到*，請修正試算表"
+            )
             continue
 
         cls = ac.resolve(sid, r.get(COL_CLASS))
@@ -141,18 +181,23 @@ def main():
 
         df = get_price_frame(sid)
         if df is None:
-            fetch_fails.append(
+            needs_check.append(
                 f"• {sid} {name}｜今日查不到價，*這檔沒被停損檢查到*，請手動看盤"
             )
             continue
         p = float(df["close"].iloc[-1])
 
-        new_peak = max(peak, p)
-        trailing = new_peak >= entry * (1 + take_pct)
+        # 期間最高價 = max(試算表既有值, 買進日以來實際最高收盤, 今日收盤)
+        # 加入「買進日以來實際最高」是為了讓補登的舊單也能正確啟動移動停利
+        hist_peak = peak_since_buy(df, buy_date)
+        new_peak = max(x for x in (peak, p, hist_peak) if x is not None)
+
+        take_line = entry * (1 + take_pct)
+        trailing = new_peak >= take_line - EPS
         stop = new_peak * (1 - stop_pct) if trailing else entry * (1 - stop_pct)
         mode = "移動停利" if trailing else f"固定 −{stop_pct * 100:.0f}%"
         pnl = (p - entry) / entry * 100
-        just_locked = trailing and peak < entry * (1 + take_pct)
+        just_locked = trailing and peak < take_line - EPS
         days = held_trading_days(df, buy_date)
 
         # 寫回新的期間最高價
@@ -200,9 +245,9 @@ def main():
             )
 
     msg = [f"📌 *持股停損停利檢查* {today}", ""]
-    if fetch_fails:
-        msg.append("🟠 *查價失敗（需手動確認）*")
-        msg.extend(fetch_fails)
+    if needs_check:
+        msg.append("🟠 *需手動確認（以下未納入自動檢查）*")
+        msg.extend(needs_check)
         msg.append("")
     if alerts:
         msg.append("⚠️ *需要注意*")
@@ -213,8 +258,9 @@ def main():
         msg.extend(normals)
         msg.append("")
     msg.append(
-        "_停損幅度依商品類別而異（個股 −8%／一般ETF −12%／槓桿ETF −15%／反向ETF −8%）；"
-        "股價可能為最新或前一交易日收盤，僅供參考。實際買賣請自行判斷，本程式不代下單。_"
+        "_停損幅度依商品類別而異（個股 −8%／一般ETF −12%／槓桿ETF −15%／反向ETF −8%，"
+        "反向的 −8% 約等於大盤漲 8%）；股價為未還原除權息的收盤價，除息日可能出現假跌破，"
+        "僅供參考。實際買賣請自行判斷，本程式不代下單。_"
     )
     send_telegram("\n".join(msg))
 
