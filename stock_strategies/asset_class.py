@@ -83,8 +83,10 @@ HOLDING_RULES = {
         "max_hold_days": None, "leverage": 1.0,
     },
     ETF: {
-        # 寬基指數波動較個股小，−8% 太緊 → 放寬
-        "stop_pct": 0.12, "take_pct": 0.12,
+        # 寬基指數波動較個股小，−8% 太緊 → 放寬到 −12%
+        # take_pct 必須 > stop_pct/(1-stop_pct)=0.1364，否則切換移動停利時
+        # 停損線會低於買進成本（見下方 _assert_rules_consistent）
+        "stop_pct": 0.12, "take_pct": 0.18,
         "max_hold_days": None, "leverage": 1.0,
     },
     LEVERAGED: {
@@ -100,6 +102,28 @@ HOLDING_RULES = {
         "max_hold_days": 30, "leverage": 1.0,
     },
 }
+
+
+def _assert_rules_consistent() -> None:
+    """不變量：切換移動停利的那一刻，停損線必須高於買進成本。
+
+    否則系統會推「🟢 已鎖利」但停損線其實在成本之下 —— 是假鎖利。
+    條件：(1 + take_pct) × (1 - stop_pct) > 1  ⇔  take_pct > stop_pct / (1 - stop_pct)
+
+    這裡故意在 import 時就檢查並拋錯：參數被改壞時要「大聲失敗」
+    （workflow 失敗會推 Telegram），而不是靜默算出錯誤的停損線。
+    """
+    for cls, r in HOLDING_RULES.items():
+        s, t = r["stop_pct"], r["take_pct"]
+        if (1 + t) * (1 - s) <= 1:
+            raise ValueError(
+                f"asset_class 參數不一致（{LABEL.get(cls, cls)}）："
+                f"take_pct={t} 必須大於 stop_pct/(1-stop_pct)={s / (1 - s):.4f}，"
+                "否則切換移動停利時停損線會低於買進價，「已鎖利」訊息會是假的。"
+            )
+
+
+_assert_rules_consistent()
 
 
 def holding_rules(cls: str) -> dict:
