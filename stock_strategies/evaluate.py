@@ -8,12 +8,12 @@ from .data import get_fundamental, get_price_history
 from .indicators import add_indicators, tech_score_at
 from .backtest import backtest
 from .volume import detect_patterns, verdict as volume_verdict
-from .loader import merge_params
+from .loader import merge_params; from . import asset_class as ac
 
 
 def evaluate(stock_id: str, name: str, strategy: dict | None = None) -> Optional[dict]:
     """評估一檔股票。strategy 為策略 dict（含 params），不給就用預設值。"""
-    params = merge_params(strategy)
+    params = merge_params(strategy); cls = ac.classify(stock_id); params = {**params, **ac.scoring_overrides(cls)}
 
     result = {
         "stock_id": stock_id,
