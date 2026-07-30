@@ -77,7 +77,7 @@ def evaluate(stock_id: str, name: str, strategy: dict | None = None) -> Optional
         else:
             action = "SKIP"
 
-        entry = float(latest["close"])
+        entry = float(latest["close"]); result["risk_notes"] += [n for n in [ac.signal_semantics_note(cls)] if n]
         stop_price = round(entry * (1 - params["stop_loss"]), 2)
         target_price = round(entry * (1 + params["target_return"]), 2)
         rr = round(params["target_return"] / params["stop_loss"], 2)
@@ -89,7 +89,7 @@ def evaluate(stock_id: str, name: str, strategy: dict | None = None) -> Optional
 
         if bt.get("samples", 0) < 8:
             result["risk_notes"].append(f"回測樣本僅 {bt.get('samples', 0)} 次，統計弱")
-        if not fund_pass:
+        if not fund_pass and params["fundamental_pass_required"]:
             result["risk_notes"].append("基本面未過門檻")
         if winrate < 0.5:
             result["risk_notes"].append(f"歷史勝率 {winrate*100:.0f}% 低於五成")
