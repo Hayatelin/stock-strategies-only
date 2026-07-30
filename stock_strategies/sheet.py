@@ -21,7 +21,7 @@ def read_watchlist() -> list[dict]:
     """從 Google Sheet Watchlist 分頁讀股票清單"""
     sh = get_gsheet()
     ws = sh.worksheet("Watchlist")
-    rows = ws.get_all_records()
+    rows = ws.get_all_records(numericise_ignore=["all"])
     enabled = [
         r for r in rows
         if str(r.get("enabled", "")).upper() in ("TRUE", "1", "YES")
