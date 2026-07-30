@@ -176,6 +176,48 @@ def scoring_overrides(cls: str) -> dict:
     return dict(SCORING_OVERRIDES.get(cls, {}))
 
 
+def backtest_component(winrate, weight_backtest, risk_notes):
+    """決定回測項的得分與「實際生效的權重」。
+
+    原本的寫法是 `winrate = bt.get("winrate") or 0.5`，有兩個問題：
+    1. `or` 是 falsy 判斷 → **真實勝率 0% 的股票也會被當成 50%**。
+    2. 回測完全沒有樣本時，用 50 分「補」進去等於憑空加分
+       （個股虛增最多 20 分、ETF 27.5 分，而 BUY 門檻只有 65 分）。
+
+    改成：
+    - 有勝率（含 0.0）→ 照實換算成 0~100 分。
+    - 沒有樣本（None）→ 回測權重歸零，交給呼叫端重新正規化其餘權重，
+      也就是「這檔沒有回測依據，就只用基本面與技術面評分」，而不是給它 50 分。
+
+    回傳 (bt_score, weight_backtest_effective)。
+    """
+    if winrate is None:
+        risk_notes.append("回測無樣本，本次評分已排除回測權重（不以 50% 勝率代入）")
+        return 0.0, 0.0
+    return float(winrate) * 100.0, weight_backtest
+
+
+# 回測樣本數低於此值就不發 BUY（仍可 WATCH）。
+# 理由：把「無樣本」的回測權重歸零後，分數會變成 100% 由技術面決定，
+# 反而讓「沒有回測依據」的標的比「有依據但勝率普通」的標的更容易上 BUY。
+# 這條門檻把語意講清楚：沒被歷史驗證過就不進場，但可以放進觀察名單。
+MIN_BACKTEST_SAMPLES_FOR_BUY = 8
+
+
+def backtest_gate(samples, action, risk_notes):
+    """樣本不足時把 BUY 降級為 WATCH；其餘動作原樣回傳。"""
+    if action != "BUY":
+        return action
+    n = samples or 0
+    if n < MIN_BACKTEST_SAMPLES_FOR_BUY:
+        risk_notes.append(
+            f"回測樣本僅 {n} 次（低於 {MIN_BACKTEST_SAMPLES_FOR_BUY} 次），"
+            "未經足夠歷史驗證，已由 BUY 降為 WATCH"
+        )
+        return "WATCH"
+    return action
+
+
 def is_daily_reset(cls: str) -> bool:
     """是否為每日重設商品（有波動耗損）。"""
     return cls in (LEVERAGED, INVERSE)
