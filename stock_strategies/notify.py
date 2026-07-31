@@ -1,7 +1,7 @@
 import os
 import sys
 from datetime import datetime
-
+from . import telegram_safe as tg
 import numpy as np
 import requests
 
@@ -9,7 +9,7 @@ from .config import CONFIG, TELEGRAM_API
 
 
 def send_telegram(text: str):
-    url = TELEGRAM_API.format(token=os.environ["TELEGRAM_BOT_TOKEN"])
+    return tg.send(text)
     payload = {
         "chat_id": os.environ["TELEGRAM_CHAT_ID"],
         "text": text,
