@@ -21,6 +21,7 @@ try:
 except ImportError:
     pass
 
+from stock_strategies import signal_filter as sf
 from stock_strategies.sheet import (
     read_watchlist,
     append_signals,
@@ -123,7 +124,7 @@ def main():
 
     # 7. 發送 Telegram
     print("發送 Telegram...")
-    for msg in format_messages(results, watchlist, market=market, night_note=night_note):
+    for msg in format_messages(sf.apply_display_limits(results, watchlist, market), watchlist, market=market, night_note=night_note):
         send_telegram(msg)
         time.sleep(0.5)
 
