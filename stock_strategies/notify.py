@@ -147,6 +147,7 @@ def format_messages(
     watchlist: list[dict] = None,
     market: dict = None,
     night_note: str = None,
+    display_signals: list[dict] = None,
 ) -> list[str]:
     """產生多則 Telegram 訊息"""
     buys = [s for s in signals if s.get("action") == "BUY"]
@@ -198,6 +199,14 @@ def format_messages(
         f"停損{CONFIG['stop_loss']*100:.0f}% / 停利{CONFIG['target_return']*100:.0f}% / 持有{CONFIG['hold_days']}日"
     )
     messages.append("\n".join(msg1))
+
+    # Everything above this point (scan count, sentiment, breadth, sector ranking)
+    # stays on the FULL signal list. Only the listings below use the trimmed one --
+    # feeding the filtered list to everything skewed the sentiment line (verified
+    # 2026-07-31: identical data flipped bearish into bullish).
+    shown = display_signals if display_signals is not None else signals
+    buys = [s for s in shown if s.get("action") == "BUY"]
+    watches = [s for s in shown if s.get("action") == "WATCH"]
 
     # === 第二則：BUY 詳細 ===
     msg2 = []
