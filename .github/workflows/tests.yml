@@ -1,0 +1,47 @@
+name: Tests
+
+# 每次 push / PR 自動檢查：
+# 1) 跑單元測試（pyproject 預設排除 live 標記，不打真實 API）
+# 2) 逐一 import 四支排程主程式，防止「某檔沒 commit 但別的程式已 import 它」導致排程全掛
+on:
+  push:
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: uv sync
+
+      - name: Run pytest
+        run: uv run pytest -q
+
+      - name: Import check (scheduled entrypoints)
+        run: |
+          failed=""
+          for mod in main holdings_monitor weekly_report premarket; do
+            echo "::group::import ${mod}"
+            if uv run python -c "import ${mod}"; then
+              echo "OK: ${mod}"
+            else
+              echo "::error::import ${mod} 失敗"
+              failed="${failed} ${mod}"
+            fi
+            echo "::endgroup::"
+          done
+          if [ -n "${failed}" ]; then
+            echo "以下主程式 import 失敗:${failed}"
+            exit 1
+          fi
+          echo "四支主程式 import 全部成功"
