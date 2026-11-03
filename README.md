@@ -372,13 +372,17 @@ uv run python main.py
 
 > 不要把這五個值填到 **Variables**。本 repo 的 workflow 讀的是 `${{ secrets.FINMIND_TOKEN }}` 這種 `secrets.*`，如果填到 Variables，Actions 會顯示 `Missing ...` 或在執行時讀不到 token。Variables 只適合放非敏感設定，例如未來如果要自訂掃描檔數、策略名稱、debug 開關，才放那邊。
 
-本 repo 已內建三支 workflow：
+本 repo 已內建七支 workflow：
 
 | Workflow | 用途 | 觸發 |
 |---|---|---|
 | `Telegram Smoke Test` | 只測 Telegram token / chat id 是否正確 | 手動 |
 | `V3 Daily Signal` | 收盤後跑 `main.py` 選股並推 Telegram | 每交易日台灣時間 14:30 / 手動 |
 | `Premarket Night Session` | 盤前跑 `premarket.py` 夜盤快報 | 每交易日台灣時間 08:00 / 手動 |
+| `Holdings Monitor` | `uv run python holdings_monitor.py` | 平日台灣時間 20:00 / 手動 |
+| `Weekly Review` | `uv run python weekly_report.py` | 每週日台灣時間 20:00 / 手動 |
+| `全量策略回測週報` | `python backtest_cloud.py` | 每週六台灣時間 10:00 / 手動 |
+| `Tests` | `uv run pytest -q` + import 檢查（main / holdings_monitor / weekly_report / premarket） | push / pull_request |
 
 先到 **Actions** → **Telegram Smoke Test** → **Run workflow**。如果 Telegram 收得到測試訊息，代表 `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` 正確。
 
@@ -558,6 +562,9 @@ signal_score = round(
 stock-strategies-only/
 ├── main.py                    # 入口①：收盤後 14:30 選股（串接整個流程）
 ├── premarket.py               # 入口②：盤前 08:00 夜盤快報
+├── holdings_monitor.py        # 持股停損停利監控（雲端版，分資產類別風控）
+├── weekly_report.py           # 本週回顧週報（雲端版）
+├── backtest_cloud.py          # 199 檔全量策略回測週報（雲端版）
 ├── stock_strategies/
 │   ├── config.py              # 策略參數 & 常數（含夜盤門檻）
 │   ├── sheet.py               # Google Sheet 讀寫
@@ -568,15 +575,28 @@ stock-strategies-only/
 │   ├── backtest.py            # 歷史回測
 │   ├── evaluate.py            # 綜合評估（組合以上模組）
 │   └── notify.py              # Telegram 格式化 + 發送
+├── strategies/
+├── api/
+├── web/                       # Next.js + Tailwind 前端，後端是 `api/` 下的 FastAPI
+├── tests/
+├── docs/
+├── assets/
 ├── pyproject.toml             # Python 依賴管理（uv）
 ├── uv.lock                    # 鎖定版本
 ├── .github/workflows/
 │   ├── daily.yml              # GitHub Actions：收盤後選股（14:30）
 │   ├── premarket.yml          # GitHub Actions：盤前夜盤快報（08:00）
+│   ├── holdings.yml           # GitHub Actions：Holdings Monitor（平日 20:00）
+│   ├── weekly.yml             # GitHub Actions：Weekly Review（週日 20:00）
+│   ├── backtest_weekly.yml    # GitHub Actions：全量策略回測週報（週六 10:00）
+│   ├── tests.yml              # GitHub Actions：Tests（push / pull_request）
 │   └── telegram-smoke-test.yml # 手動測 Telegram secret 是否正確
 ├── daily.yml                  # workflow 範本：收盤後選股
 ├── premarket.yml              # workflow 範本：盤前夜盤快報
 ├── .env.example               # 環境變數範本
+├── .gitignore
+├── .python-version
+├── LICENSE
 └── README.md
 ```
 
@@ -667,6 +687,8 @@ Private repo 每月免費 2000 分鐘，這個 workflow 每次約 2 分鐘，每
 **✅ 最新完成**
 
 - [x] 🌙 **夜盤盤前快報** — 早上 08:00 讀台指期夜盤，預判今日開盤方向，疊加昨日訊號順風/逆風
+- [x] 追蹤停利 — 已進場部位的每日監控
+- [x] 週報自動生成 — 每週日回顧本週訊號表現
 
 **🚧 進行中（下一個大版本）**
 
@@ -677,9 +699,7 @@ Private repo 每月免費 2000 分鐘，這個 workflow 每次約 2 分鐘，每
 
 - [ ] 類股強弱前置過濾 — 順風類股才出訊號
 - [ ] 資金控管模組 — 追蹤總部位曝險
-- [ ] 追蹤停利 — 已進場部位的每日監控
 - [ ] 週期股策略 — 營收年增率 + 景氣指標
-- [ ] 週報自動生成 — 每週日回顧本週訊號表現
 
 ---
 
